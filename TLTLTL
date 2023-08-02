@@ -1,0 +1,290 @@
+Option Explicit
+
+Public WB0 As Workbook, TmpCell As Range, IdentifyCell As Range, iCntA%, msgAnswer%, msgAnswer2%, sSearchPath As String
+Public ObjWS_Config As Object
+Public ObjCell_Input As Object, ObjCell_Input2 As Object, ObjCell_SearchResult As Object, ObjCell_SearchPath As Object, ObjCell_Setting As Object
+Public Const MAXPARTNUM As Integer = 21
+Public Const ObjWS_Config_Name As String = "CONFIGPAGE"
+Public Function WAFData()
+    Dim Connection_db As New ADODB.Connection
+    Dim TmpRecordset As New ADODB.Recordset
+    Dim SQL_str$, Connection_str$
+    Connection_str = "Driver={Oracle in instantClient_19_11};DSN=mfdm10;UID=eng_pie;PWD=pieqweasdzxc123;DBQ=MFDM10;DBA=W;" & _
+    "APA=T;EXC=F;FEN=T;QTO=T;FRC=10;FDL=10;LOB=T;RST=T;BTD=F;BNF=F;BAM=IfAllSuccessful;NUM=NLS;DPM=F;MTS=F;" & _
+    "MDI=F;CSR=F;FWC=F;FBS=64000;TLO=0;MLD=0;ODA=F;STE=F;TSZ=8192;AST=FLOAT;LPS=8192;"
+    Connection_db.Open Connection_str
+    Connection_db.CommandTimeout = 800
+    For Each TmpCell In ObjCell_Input
+        If Trim(TmpCell) <> "" And Trim(TmpCell.Offset(, 3)) = "" And Trim(TmpCell.Offset(, 5)) = "" Then
+            SQL_str = "select * from (select STEPX, STEPY, CENTERDIEX, CENTERDIEY, OFFSETDIEX,OFFSETDIEY, FLAT, SITES from mfgadmin.st_wat_eng_wafer_info t where wafer in ('"
+            SQL_str = SQL_str & Trim(TmpCell) & "') order by UPDATETIME desc) where rownum = 1"
+            TmpRecordset.Open _
+                Source:=SQL_str, _
+                ActiveConnection:=Connection_db, _
+                CursorType:=adOpenDynamic, _
+                LockType:=adLockReadOnly, _
+                Options:=adCmdText
+                
+            TmpCell.Offset(, 5).CopyFromRecordset TmpRecordset
+            TmpRecordset.Close
+            TmpCell.Interior.ColorIndex = 35
+            If Trim(TmpCell.Offset(, 5)) = "" Then TmpCell.Interior.ColorIndex = 22 '#RED#
+            '======================== WAF data done
+        End If
+    Next TmpCell
+End Function
+
+Public Function IsInArray(stringToBeFound As String, arr As Variant) As Boolean
+    Dim i
+    For i = LBound(arr) To UBound(arr)
+        If arr(i) = stringToBeFound Then
+            IsInArray = True
+            Exit Function
+        End If
+    Next i
+    IsInArray = False
+End Function
+
+Public Function IsAlpha(strValue As String) As Boolean
+    Dim intPos As Integer
+    For intPos = 1 To Len(strValue)
+        Select Case Asc(Mid(strValue, intPos, 1))
+            Case 65 To 90, 97 To 122
+                IsAlpha = True
+                Exit For
+            Case Else
+                IsAlpha = False
+        End Select
+    Next intPos
+End Function
+
+
+Public Function CheckSheet(sWSName As String) As Boolean
+    Dim IsExist As Boolean, iTmpSheet%
+    IsExist = False
+    For iTmpSheet = 1 To Application.ActiveWorkbook.Sheets.Count
+        If Application.ActiveWorkbook.Sheets(iTmpSheet).Name = sWSName Then
+            IsExist = True
+            Exit For
+        End If
+    Next
+    CheckSheet = IsExist
+End Function
+
+Public Function FilePath(sPath() As String, sTmpPath$, iCurrent%, iStarNum%, ObjCell_SearchResult)
+    Dim sDir$, sFiles(9000) As String, iFilesIndex%
+    iFilesIndex = 0
+    sDir = Left(sTmpPath, InStrRev(sTmpPath, "\"))
+    If iCurrent <= iStarNum Then
+        sFiles(0) = FileSystem.Dir(sTmpPath & "*RFL*.txt*", vbDirectory)
+        Do While sFiles(iFilesIndex) <> ""
+            Do While sFiles(iFilesIndex) = "." Or sFiles(iFilesIndex) = ".."
+                sFiles(iFilesIndex) = FileSystem.Dir()
+            Loop
+            iFilesIndex = iFilesIndex + 1
+            If iFilesIndex = 9000 + 1 Then
+                MsgBox ("Over searching upper limit." & Chr(10) & "Maximum number of files to be found: " & 9000)
+                Exit Do
+            End If
+            sFiles(iFilesIndex) = FileSystem.Dir()
+        Loop
+        iFilesIndex = iFilesIndex - 1
+        Dim iDocIndex%
+        For iDocIndex% = 0 To iFilesIndex
+            If (GetAttr(sDir & sFiles(iDocIndex)) And vbDirectory) = vbDirectory Then
+                Call FilePath(sPath, sDir & sFiles(iDocIndex) & "" & sPath(iCurrent + 1), iCurrent + 1, iStarNum, ObjCell_SearchResult)
+            Else
+                If iCurrent = iStarNum Then
+                    Dim iRow%
+  iRow% = 0
+                    Do While ObjCell_SearchResult.Offset(iRow).Value <> ""
+                        iRow = iRow + 1
+                    Loop
+                    ObjCell_SearchResult.Offset(iRow).Value = sDir & sFiles(iDocIndex)
+                End If
+            End If
+        Next iDocIndex
+    End If
+End Function
+
+Public Function ListFile(sSearchPath)
+    Dim iStarNum%, sSplitPath(3) As String
+    If Trim(sSearchPath) = "" Then Exit Function
+    Dim sSearchPath2$
+    If InStr(sSearchPath, "*") = 0 Then sSearchPath2 = sSearchPath & "\*"
+    ObjCell_SearchResult.Resize(9000).ClearContents
+    Dim iStarPos%, iBackSlashPos%
+    For iStarNum = 0 To 3
+        iStarPos = InStr(sSearchPath2, "*")
+        If iStarPos > 0 Then
+            iBackSlashPos = InStr(iStarPos, sSearchPath2, "\")
+            If iBackSlashPos > 0 Then
+                sSplitPath(iStarNum) = Left(sSearchPath2, iBackSlashPos - 1)
+                sSearchPath2 = Mid(sSearchPath2, iBackSlashPos + 1)
+            Else
+                sSplitPath(iStarNum) = sSearchPath2
+                Exit For
+            End If
+        Else
+            sSplitPath(iStarNum) = sSearchPath2
+        End If
+    Next iStarNum
+    Call FilePath(sSplitPath, sSplitPath(0), 0, iStarNum, ObjCell_SearchResult)
+    ObjCell_SearchResult.Resize(9000).Font.ColorIndex = xlAutomatic
+    Dim PathCell As Range, TmpPathCell As Range
+    For Each TmpPathCell In ObjCell_Input
+        Set PathCell = ObjWS_Config.Columns(ObjCell_SearchResult.Column).Find(What:=Mid(Trim(TmpPathCell), 3, 4), SearchOrder:=xlByRows, LookAt:=xlPart, MatchCase:=True)
+        If Not PathCell Is Nothing Then TmpPathCell.Offset(, 13) = Trim(PathCell)
+    Next TmpPathCell
+End Function
+
+Public Function RFLResult(TLName As String, fileToOpen As Variant) As String
+    RFLResult = "ERR"
+    If fileToOpen = "" Then Exit Function
+    Dim textt$, textline$, texttbuffer$, texttbuffer2$, posTL As Long, posbrackets As Long, posstar As Long, iCnt%
+    Open fileToOpen For Input As #1
+    Do Until EOF(1)
+        Line Input #1, textline
+        textt = textt & textline
+    Loop
+    Close #1
+    posTL = InStr(textt, TLName)
+    If posTL = 0 Then Exit Function
+    texttbuffer = Mid(textt, posTL)
+    texttbuffer = Replace(texttbuffer, " ", "")
+    Do While iCnt < 200
+        posbrackets = InStr(posbrackets + 1, texttbuffer, ")")
+        texttbuffer2 = Mid(texttbuffer, posbrackets)
+        If Mid(texttbuffer2, 2, 1) <> "(" Then Exit Do
+        iCnt = iCnt + 1
+		If iCnt > 199 Then MsgBox("Over 200 results for this chip/TL.") : RFLResult = "ERR" : Exit Function
+    Loop
+    texttbuffer2 = Mid(texttbuffer, 1, posbrackets)
+    texttbuffer2 = Replace(texttbuffer2, TLName, "")
+    texttbuffer2 = Replace(texttbuffer2, "x", ",")
+    posstar = InStr(texttbuffer2, "*")
+    If posstar > 0 And (Mid(texttbuffer2, posstar + 1, 1) = iCnt Or Mid(texttbuffer2, posstar + 1, 2) = iCnt) Then texttbuffer2 = Replace(texttbuffer2, "*" & iCnt, "") ' split out the TL info
+    texttbuffer2 = Replace(texttbuffer2, "(", ",")
+    texttbuffer2 = Replace(texttbuffer2, "[R]", "") 'no need
+    texttbuffer2 = Replace(texttbuffer2, ")", ",") ' split by ,
+    Do While InStr(texttbuffer2, ",,") <> 0
+        texttbuffer2 = Replace(texttbuffer2, ",,", ",")
+    Loop
+    texttbuffer2 = iCnt & "," & texttbuffer2
+    RFLResult = texttbuffer2
+    If IsAlpha(texttbuffer2) = True Then RFLResult = "ERR"
+End Function
+
+
+
+Public Function RFLfromTXT(TLinfo$)
+    Dim arrTLinfo As Variant, iPosOther%, ii%, jj%
+        ReDim arrTLinfo(0 To CInt(Left(TLinfo, InStr(TLinfo, ",")) - 1) * 2 + 3) 'buffer
+        arrTLinfo = Split(TLinfo, ",")
+        TmpCell.Offset(, 14) = arrTLinfo(1)
+        TmpCell.Offset(, 15) = arrTLinfo(2)
+        TmpCell.Offset(, 3) = arrTLinfo(3)
+        TmpCell.Offset(, 4) = arrTLinfo(4)
+        If CInt(arrTLinfo(0)) > 1 Then
+            For ii = 2 To CInt(arrTLinfo(0))
+                iPosOther = iPosOther + 1
+                For jj = 0 To 15
+                    ObjWS_Config.Cells(MAXPARTNUM + 1, 1).Offset(iPosOther, jj) = Trim(TmpCell.Offset(, jj))
+                Next jj
+                ObjWS_Config.Cells(MAXPARTNUM + 1, 1).Offset(iPosOther, 3) = arrTLinfo(2 * ii + 1)
+                ObjWS_Config.Cells(MAXPARTNUM + 1, 1).Offset(iPosOther, 4) = arrTLinfo(2 * ii + 2)
+            Next ii
+        End If
+        Set arrTLinfo = Nothing
+End Function
+
+
+
+Public Function RFLfromWeb(PART$) As String
+    PART = Trim(Left(PART, 6))
+    Dim urlText As String, myXML As Object, myText$, filename$, strPos%, strPos2%
+    'PART = "TMLA06"
+    Set myXML = CreateObject("WinHttp.WinHttpRequest.5.1")
+  urlText = PROD_TM=" & PART
+    myXML.Open "GET", urlText, False
+   myXML.setRequestHeader "Content-Type", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+myXML.setRequestHeader "Cookie", "MA
+    myXML.send
+
+    myText = myXML.responseText
+If InStr(myText, "Invalid Access..") > 0 Then MsgBox ("
+    Set myXML = Nothing
+    Set myXML = CreateObject("WinHttp.WinHttpRequest.5.1")
+    If myXML.Status = 200 Then
+        Dim oStream As Object
+        Set oStream = CreateObject("ADODB.Stream")
+        oStream.Open
+        oStream.Type = 1
+        oStream.Write myXML.responseBody
+        oStream.SaveToFile sSearchPath & "\RFL_" & filename & ".txt", Abs(CInt(1)) + 1 'overwrite
+        oStream.Close
+    Else
+        MsgBox ("Service down." & Chr(10) & "Please download RFL manually."): Set myXML = Nothing: RFLfromWeb = "": Exit Function
+    End If
+    Set myXML = Nothing
+    RFLfromWeb = sSearchPath & "\RFL_" & filename & ".txt"
+End Function
+
+
+
+Sub LoadData()
+    Call Initial
+    Call WAFData
+    Call ListFile(sSearchPath)
+    Dim Flag%, varRFLPath As Variant, arrPartList2 As Variant, TLinfo$, iLoad%
+    ReDim arrPartList2(0 To MAXPARTNUM)
+    Flag = 0
+    For Each TmpCell In ObjCell_Input
+        If Trim(TmpCell) <> "" And Trim(TmpCell.Offset(, 1)) <> "" And Trim(TmpCell.Offset(, 3)) = "" And Trim(TmpCell.Offset(, 5)) <> "" Then
+            varRFLPath = Trim(TmpCell.Offset(, 13))
+            If varRFLPath = "" And Flag = 0 Then
+                msgAnswer = MsgBox("Some RF
+                Flag = 1
+            End If
+            If varRFLPath = "" And msgAnswer = 6 And Not IsInArray(Trim(TmpCell), arrPartList2) Then 'vbYes = 6 vbNo = 7 'only 1 time for 1 part
+                arrPartList2(iLoad) = Trim(TmpCell)
+                iLoad = iLoad + 1
+                varRFLPath = RFLfromWeb(Trim(TmpCell))
+                TmpCell.Offset(, 13) = varRFLPath
+            End If
+            If varRFLPath = "" And IsInArray(Trim(TmpCell), arrPartList2) Then Call ListFile(sSearchPath): varRFLPath = Trim(TmpCell.Offset(, 13))  ' repeat to find the RFL
+            TLinfo = RFLResult(Trim(TmpCell.Offset(, 1)), varRFLPath)
+            If TLinfo <> "ERR" Then
+                Call RFLfromTXT(TLinfo)
+                TmpCell.Offset(, 1).Interior.ColorIndex = 35
+            Else
+                TmpCell.Offset(, 1).Interior.ColorIndex = 22 '#RED#
+            End If
+            iCntA = iCntA + 1
+        ElseIf (Trim(TmpCell) <> "" Or Trim(TmpCell.Offset(, 1)) <> "") And Trim(TmpCell.Offset(, 3)) = "" Then
+            TmpCell.Offset(, 1).Interior.ColorIndex = 22
+            iCntA = iCntA + 1
+        End If
+    Next TmpCell
+    If iCntA <> 0 Then MsgBox ("Done.")
+End Sub
+
+Sub CheckVer()
+    Call Initial
+    Dim Version$, fileUpdateLog$
+    fileUpdateLog = "\\f10projsvr01\PIE_Onduty&Handover$\6. 课内交接杂事\PIE9\VBA USE\WAF TL Position Measurement\Update Log.txt"
+    Open fileUpdateLog For Input As #1
+    Line Input #1, Version
+    Close #1
+    Version = "Ver. " & Version
+    MsgBox ("The latest version is " & Version)
+End Sub
+
+Public Sub CheckUseRate()
+    Dim myWshNw As Object
+    Set myWshNw = CreateObject("Wscript.Network")
+Open "\\ e.txt" For Append As #1
+
+    Print #1, Format(Now, "yyyy/MM/dd hh:mm:ss"), myWshNw.ComputerName, myWshNw.UserName
+    Close #1
+End Sub
